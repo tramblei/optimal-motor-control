@@ -1,0 +1,33 @@
+% A under feedback linearization transformation
+A = [0 0 1 0;
+     0 0 0 1;
+     0 0 0 0;
+     0 0 0 0];
+
+% B under feedback linearization transformation
+B = [0 0;
+     0 0;
+     1 0;
+     0 1];
+
+n = size(A, 1);
+m = size(B, 2);
+
+tSpan = [0 5];
+nSol = 100;
+tol = 1e-6;
+
+F = 0.5 * eye(n);
+Q = zeros(n);
+R = 0.0001 * eye(m);
+
+nState = 4;
+Soln = finiteLqr(tSpan,A,B,Q,R,F,nSoln,tol);
+KK = reshape([Soln.K],nState,nSoln);
+t = [Soln.t];
+
+nFit = 6;
+for i = 1:size(KK
+kxFit = polyfit(tSol,K(1,:),nFit);
+kyFit = polyfit(tSol,K(2,:),nFit);
+

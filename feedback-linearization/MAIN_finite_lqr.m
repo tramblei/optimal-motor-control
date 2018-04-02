@@ -22,15 +22,21 @@ tol = 1e-6;
 
 % LQR weighting
 Fs = [200000, 20000, 2000];
-Q = 1 * eye(n);
-R = eye(m);
+Q = 0 * eye(n);
+R = 100*eye(m);
+wp = 1E+4;      % terminal position cost weight
+wv = 1E+3;      % terminal velocity cost weight
 
 directions = 8;
 cols = {'black', 'red', 'blue'};
 figure;
 hold on;
-for k = 1:3
-    F = eye(n) * Fs(k);
+for k = 1:1
+    %F = eye(n) * Fs(k);
+    F = eye(n);
+    F(1:2,1:2) = F(1:2,1:2) * wp;
+    F(3:4,3:4) = F(3:4,3:4) * wv;
+    
     col = cols{mod(k,3) + 1};
     
     Soln = finite_lqr(tSpan,A,B,Q,R,F,nSoln,tol);
@@ -47,7 +53,7 @@ for k = 1:3
         x_star = [theta_star; 0; 0]; % zero final velocity
 
         x = zeros(n, nSoln);
-        x0 = [initial; 0; 0];
+        x0 = [initial; normrnd(0,0.1); normrnd(0,0.1)];
         x(:,1) = x0;
         
         % Say we want to stabilize the system to x*
@@ -62,15 +68,14 @@ for k = 1:3
         u_star = -B' * A * x_star;
 
         u = zeros(2,nSoln);
-        vs = []
+        vs = [];
         for i = 1:nSoln - 1
             v = -KK{i} * (x(:,i) - x_star) + u_star;
             vs = [vs,v];
             M = inertia_mtx(x(1:2, i));
             C = coriolis_mtx(x(1:2,i), x(3:4, i));
             invM = inv(M);
-            x(3:4, i + 1) = x(3:4, i) + dt * (-invM*(C + J*x(3:4,i)) + v + invM*C + invM*J*x(3:4,i)) .*normrnd([1;1],[2;2]);
-            x(1:2, i + 1) = x(1:2, i) + dt * x(3:4, i + 1);
+            x(:, i + 1) = runge_kutta4(@arm_dynamics, x(:,i), v, dt);
         end
 
         plot(x(1,:), x(2,:), col);

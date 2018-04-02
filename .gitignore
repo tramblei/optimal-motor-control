@@ -3,3 +3,5 @@ Todorov/
 notes.txt
 reinforcement-learning/MATLAB-Reinforcement-Learning-Pendulum/
 reinforcement-learning/NeuralNetPlayground/
+*.asv
+*__pycache__*

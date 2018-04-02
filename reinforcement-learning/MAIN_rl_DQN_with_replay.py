@@ -6,7 +6,7 @@ Created on Wed Feb 28 12:23:58 2018
 """
 
 import arm
-import utils
+import misc
 import numpy as np
 import matplotlib.pyplot as plt
 import itertools
@@ -15,9 +15,10 @@ import random
 
 gamma = 0.8
 rand_eps = 0.6
-eps_decay = 0.98
-hidden_layers = 10
+eps_decay = 0.9
+tau = 0.001 # for target networks
 
+hidden_layers = 100
 n = 4
 m = 2
 
@@ -28,27 +29,42 @@ initial = np.array([pi/2, pi/2])
 target_theta = initial + distance * np.array([np.cos(alpha), np.sin(alpha)])
 target_state = np.append(target_theta, [0, 0]).reshape([n,1])
 
-max_episodes = 5000
+max_episodes = 4000
 max_it = 200
 t = 0.5
 dt = t / max_it
 batch_size = 1
 
 
-num_inputs = 3
-input_bound = 5
-single_actions = np.linspace(-input_bound, input_bound, num_inputs)
+num_inputs = 20
+#input_bound = 3
+u1_bounds = [-3,3]
+u2_bounds = [-0.5,1]
+#single_actions = np.linspace(-input_bound, input_bound, num_inputs)
+u1_action_set = np.linspace(u1_bounds[0], u1_bounds[1], num_inputs)
+u2_action_set = np.linspace(u2_bounds[0], u2_bounds[1], num_inputs)
 actions = []
-for action in itertools.combinations_with_replacement(single_actions, m):
+#for action in itertools.combinations_with_replacement(single_actions, m):
+#    actions.append(np.array(action))
+for action in itertools.product(u1_action_set, u2_action_set):
     actions.append(np.array(action))
 num_actions = len(actions)
 
-Q = nn.Qnetwork(n, hidden_layers, num_actions)
-replay = nn.replay_buffer(80)
+Q = nn.Q(n, hidden_layers, num_actions, 'Q')
+Q_target = nn.Q(n, hidden_layers, num_actions, 'TargetQ')
+
+nn.init_vars()
+target_ops = nn.update_target_graph(tau)
+Q_target.target_init()
+
+replay = nn.replay_buffer(300)
 myarm = arm.Arm()
 mean_rewards = []
 success_freq = []
 successes = []
+mse = []
+final_posx = []
+final_posy = []
 for ep in range(max_episodes):
     x = np.zeros([n, max_it])
     x[:,0] = np.array([pi/2, pi/2, 0, 0])
@@ -65,12 +81,12 @@ for ep in range(max_episodes):
             action = np.argmax(qval)
         u = actions[action]
         
-        new_state = utils.rung_kutta4(myarm, state.reshape([n,1]), u, dt)
+        new_state = misc.rung_kutta4t(myarm, state.reshape([n,1]), u, dt)
         x[:, i + 1] = new_state.reshape([4])
-        reward = utils.reward(new_state, u, target_state)
+        reward = misc.reward(new_state, u, target_state)
         mean_reward += reward / max_it
 
-        if utils.close_enough(new_state, target_state):
+        if misc.close_enough(new_state, target_state):
             end = i + 1
             success = 1
             break
@@ -84,20 +100,22 @@ for ep in range(max_episodes):
             y_train = np.zeros([40,num_actions])
             for idx, memory in enumerate(minibatch):
                 old_state, action, reward, new_state = memory
-                oldq = Q.predict(old_state.reshape([1,n]))
-                newq = Q.predict(new_state.reshape([1,n]))
+                oldq = Q_target.predict(old_state.reshape([1,n]))
+                newq = Q_target.predict(new_state.reshape([1,n]))
                 maxq = np.max(newq)
                 ytmp = np.zeros([1,num_actions])
                 ytmp[:] = oldq[:]
-                if utils.close_enough(new_state, target_state):
+                if misc.close_enough(new_state, target_state):
                     bonus = 1000
                 else:
                     bonus = 0
                 ytmp[0,action] = reward + gamma * maxq + bonus
                 x_train[idx,:] = old_state.reshape([n])
                 y_train[idx,:] = ytmp.reshape([num_actions])
-    
-                Q.update(x_train, y_train)
+
+            Q.update(x_train, y_train)
+            mse.append(nn.sess.run(Q.loss, feed_dict={Q.X:x_train, Q.y: y_train}))
+            Q_target.target_update(target_ops)
         
         if rand_eps > 0.1:
             rand_eps= rand_eps * eps_decay
@@ -105,9 +123,14 @@ for ep in range(max_episodes):
         successes.append(1)
     else:
         successes.append(0)
+    
+    
     success_freq.append(sum(successes[-100:])/len(successes[-100:]))
     mean_rewards.append(mean_reward)
-    print("Episode: %d (%d), final position: (%f, %f), mean reward: %f, success freq: %f" % (ep, success, x[0,end], x[1,end], mean_reward, success_freq[-1]))
+    final_posx.append(x[0,end])
+    final_posy.append(x[1,end])
+    print("Episode: %d (%d), final position: (%f, %f), mean reward: %f, mse: %f" % (ep, success, x[0,end], x[1,end], mean_reward, mse[-1]))
+
 
 plt.scatter(np.arange(0, max_episodes), mean_rewards)
 plt.title("Mean rewards per episode")

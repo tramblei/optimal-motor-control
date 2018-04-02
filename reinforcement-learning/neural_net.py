@@ -9,58 +9,78 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import numpy as np
 from collections import namedtuple
+import random
 
 memory = namedtuple('Memory',['state','action','reward','next_state'])
 
-class Qnetwork:
-    def __init__(self, input_dim, hidden_dim, output_dim):
-        tf.reset_default_graph()
+tf.reset_default_graph()
+sess = tf.Session()
+
+class Q:
+    '''
+    Q(s,a) is (expected) value of taking action a from state s 
+    '''
+    def __init__(self, input_dim, hidden_dim, output_dim, name):
 
         self.X = tf.placeholder(tf.float32, shape=[None,input_dim], name="X")
         self.y = tf.placeholder(tf.float32, shape=[None,output_dim], name="y")
         
-        self.a1 = tf.layers.dense(self.X, hidden_dim, activation=tf.nn.relu)
-        self.a2 = tf.layers.dense(self.a1, hidden_dim, activation=tf.nn.relu)
-        self.yhat = tf.layers.dense(self.a2, output_dim) # default activation is linear
-        
-#        w_h0 = tf.get_variable("w_h0", shape=[input_dim, hidden_dim], initializer=tf.contrib.layers.xavier_initializer())
-#        b_h0= tf.get_variable("b_h0", shape = [hidden_dim], initializer=tf.constant_initializer(0.))
-#        a_h0 = tf.nn.relu(tf.matmul(self.X, w_h0) + b_h0)
-#        
-#        w_h1 = tf.get_variable("w_h1", shape=[hidden_dim, hidden_dim], initializer=tf.contrib.layers.xavier_initializer())
-#        b_h1= tf.get_variable("b_h1", shape = [hidden_dim], initializer=tf.constant_initializer(0.))
-#        a_h1 = tf.nn.relu(tf.matmul(a_h0, w_h1) + b_h1)
-#        
-#        w_h2 = tf.get_variable("w_h2", shape=[hidden_dim, hidden_dim], initializer=tf.contrib.layers.xavier_initializer())
-#        b_h2= tf.get_variable("b_h2", shape = [hidden_dim], initializer=tf.constant_initializer(0.))
-#        a_h2 = tf.nn.relu(tf.matmul(a_h1, w_h2) + b_h2)    
-#        w_out = tf.get_variable("w_out", shape=[hidden_dim, output_dim], initializer=tf.random_normal_initializer(stddev=.1))
+        self.a1 = tf.layers.dense(self.X, hidden_dim, activation=tf.nn.leaky_relu, name=name+'/layer1')
+        self.a2 = tf.layers.dense(self.a1, hidden_dim, activation=tf.nn.leaky_relu, name=name+'/layer2')
+        self.a3 = tf.layers.dense(self.a2, hidden_dim, activation=tf.nn.leaky_relu, name=name+'/layer3')
+        self.yhat = tf.layers.dense(self.a3, output_dim) # default activation is linear
         
         self.loss = tf.nn.l2_loss(self.yhat - self.y)
-        self.train_op = tf.train.AdamOptimizer().minimize(self.loss)
+        self.train_op = tf.train.AdamOptimizer(0.001).minimize(self.loss)
         
-        self.sess = tf.Session()
-        init = tf.global_variables_initializer()
-        self.sess.run(init)
-    
     def predict(self, X):
-        return self.sess.run(self.yhat, feed_dict={self.X: X})
+        return sess.run(self.yhat, feed_dict={self.X: X})
 
     def validation(self, validX, validy):
         self.validX = validX
         self.validy = validy
         
     def update(self, X, y):
-        self.sess.run(self.train_op, feed_dict={self.X: X, self.y: y})
+        sess.run(self.train_op, feed_dict={self.X: X, self.y: y})
     
+    def mse(self, X, y):
+        return sess.run(self.loss, feed_dict={self.X: X, self.y: y})
+    
+    def target_update(self, op_holder):
+        for op in op_holder:
+            sess.run(op)
+    
+    def target_init(self):
+        ops = update_target_graph(1)
+        self.target_update(ops)
+        
     def mse(self):
-        return self.sess.run(tf.nn.l2_loss(self.yhat - self.validy), feed_dict={self.X: self.validX})
+        return sess.run(self.loss, feed_dict={self.X:self.validX, self.y: self.validy})
+        
+                
+def init_vars():
+        init = tf.global_variables_initializer()
+        sess.run(init)
+        pass
+        
+def update_target_graph(tau):
+    trainables = tf.trainable_variables()
+    total_vars = len(trainables)
+    op_holder = []
+    for idx,var in enumerate(trainables[0:total_vars//2]):
+        op_holder.append(trainables[idx+total_vars//2].assign((var.value()*tau) + ((1-tau)*trainables[idx+total_vars//2].value())))
+    return op_holder
     
 class replay_buffer:
     def __init__(self, buff_size):
         self.max_buff_size = 80
         self.curr_buff_size = 0
         self.buff = [0] * self.max_buff_size
+        
     def insert(self, memory):
         self.buff[self.curr_buff_size % self.max_buff_size] = memory
         self.curr_buff_size += 1
+
+    def sample(self, num_samples):
+        minibatch = random.sample(self.buff, num_samples)
+        return minibatch
